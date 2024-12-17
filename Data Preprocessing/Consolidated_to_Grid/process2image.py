@@ -3,7 +3,10 @@ import pandas as pd
 import numpy as np
 from PIL import Image
 import math
+import multiprocessing as mp
 from tqdm import tqdm
+import mmap
+import gc
 import re
 
 class ProcessVisulaizer():
@@ -106,3 +109,80 @@ class ProcessVisulaizer():
         return downsampled.astype(np.uint8)
         # return enhanced[:32, :32].astype(np.uint8)
 
+    # Read CSV once and create a mapping
+    def read_csv_once(self,csv_path):
+        df = pd.read_csv(csv_path)
+        mapping = {}
+        for _, row in df.iterrows():
+            file_name = row['File output']
+            tag = str(row['Tag']).strip()  # Strip whitespace
+            protection = str(row['Protection']).strip()  # Strip whitespace       
+            mapping[file_name] = (tag, protection)
+
+        return mapping
+
+    # Process a single file
+    def region_to_patch(self, file_path, mapping=None):
+        try:
+            file_name = os.path.basename(file_path)
+            addr = self.extract_memory_address(file_name)
+            if file_name not in mapping:
+                print(f"Warning: {file_name} not found in the mapping CSV. Skipping.")
+                return
+
+            tag, protection = mapping[file_name]
+
+            with open(file_path, 'rb') as f:
+                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mmapped_file:
+                    binary_data = np.frombuffer(mmapped_file[:], dtype=np.uint8)
+            
+            feature_image = self.generate_feature_image(tag, protection)
+            entropy_image = self.generate_entropy_image(binary_data)
+            markov_image = self.generate_markov_image(binary_data)
+
+
+            rgb_image = np.stack([feature_image, entropy_image, markov_image], axis=-1)
+            return (addr, rgb_image)
+
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+
+    def proc_to_img(self, input_dir, output_file, num_workers=8):
+        patches = []
+        valid_subfolders = ["malware_executable", "dlls"]
+
+        for subfolder in valid_subfolders:
+            subfolder_path = os.path.join(input_dir, subfolder)
+            csv_files = [f for f in os.listdir(subfolder_path) if f.endswith('.csv')]
+            if not csv_files:
+                print(f"No CSV file found in {subfolder_path}. Skipping.")
+                continue
+
+            csv_path = os.path.join(subfolder_path, csv_files[0])
+            mapping = self.read_csv_once(csv_path)
+
+            file_paths = [os.path.join(subfolder_path, f) for f in os.listdir(subfolder_path) if not f.endswith('.csv')]
+            args = [(file_path, mapping) for file_path in file_paths]
+
+            with mp.Pool(processes=num_workers) as pool:
+                patches_results = list(tqdm(pool.starmap(self.region_to_patch, args), total=len(file_paths)))
+
+            patches_results = sorted([p for p in patches_results if p], key=lambda x: x[0])
+            patches.extend([p[1] for p in patches_results])
+
+            del mapping, file_paths, patches_results  # Free memory
+            gc.collect()
+
+        if len(patches) < self.num_patches:
+            patches.extend([np.zeros((self.patch_size, self.patch_size, 3), dtype=np.uint8)] * (self.num_patches - len(patches)))
+        elif len(patches) > self.num_patches:
+            patches = patches[:self.num_patches]
+
+        grid_image = Image.new("RGB", (self.grid_size * self.patch_size, self.grid_size * self.patch_size))
+        for idx, patch_array in enumerate(patches):
+            patch = Image.fromarray(patch_array.astype(np.uint8))
+            row, col = divmod(idx, self.grid_size)
+            grid_image.paste(patch, (col * self.patch_size, row * self.patch_size))
+
+        grid_image.save(output_file)
+        return grid_image
