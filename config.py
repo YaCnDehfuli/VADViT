@@ -1,0 +1,18 @@
+# config.py
+# Training parameters
+IMAGE_SIZE = 224
+PATCH_SIZE = 32
+SEED = 42
+MODE = "Binary"
+NUM_CLASSES = 2
+MULTICLASSS = False
+BATCH_SIZE = 1
+NUM_EPOCHS = 30
+LEARNING_RATE = 1e-4
+
+# Dataset path
+DATASET_PATH = f"/home/yacn/Datasets/{PATCH_SIZE}_{IMAGE_SIZE}_Datasets/{PATCH_SIZE}_{IMAGE_SIZE}_{MODE}"
+SAVE_PATH = f"./models/{MODE}_{PATCH_SIZE}_{IMAGE_SIZE}.pt"
+
+EXPERIMENT_NAME = f"{PATCH_SIZE}_{IMAGE_SIZE}"
+MODEL_NAME = f"vit_base_patch{PATCH_SIZE}_{IMAGE_SIZE}"
