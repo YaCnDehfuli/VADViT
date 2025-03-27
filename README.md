@@ -1,199 +1,187 @@
-# VADViT: Vision Transformer-Driven Malware Detection via Memory Forensics
+Below is a sample README that follows a more standard structure and focuses on the repository’s code organization and usage rather than the theory behind the paper. Feel free to adapt section names or content as needed.
 
-**VADViT** (Virtual Address Descriptor Vision Transformer) is a novel approach for detecting malicious processes through memory forensics. This repository provides the code for training, testing, and interpreting a Vision Transformer model that leverages Markov, entropy, and VAD-based metadata images to classify malware in volatile memory snapshots.
+---
+
+# VADViT: Vision Transformer-Driven Malware Detection using VAD Regions
+
+This repository contains the codebase for the **VADViT** framework, which converts Virtual Address Descriptor (VAD) regions from memory dumps into an RGB grid of images and applies a Vision Transformer (ViT) to detect malicious processes. The approach and dataset are described in detail in our paper (citation below). However, this README is dedicated to helping users run and navigate the code.
+
+> **Note**:  
+> The dataset containing raw memory dumps (BCCC-MalMem-SnapLog-2025) is **not** publicly distributed here. It is available upon request. See the [Dataset Availability](#dataset-availability) section for details.
+
+---
 
 ## Table of Contents
-- [Overview](#overview)
-- [Key Features](#key-features)
-- [Dataset](#dataset)
-- [Installation](#installation)
-- [Usage](#usage)
-  - [1. Data Preparation](#1-data-preparation)
-  - [2. Training](#2-training)
-  - [3. Testing & Explainability](#3-testing--explainability)
-- [Project Structure](#project-structure)
-- [How It Works](#how-it-works)
-  - [1. VAD Extraction](#1-vad-extraction)
-  - [2. Image Generation](#2-image-generation)
-  - [3. Vision Transformer](#3-vision-transformer)
-  - [4. Explainability](#4-explainability)
-- [Results](#results)
-- [Future Directions](#future-directions)
-- [Citation](#citation)
-- [License](#license)
+1. [Repository Structure](#repository-structure)  
+2. [Prerequisites](#prerequisites)  
+3. [Usage Overview](#usage-overview)  
+   1. [Step 1: Data Preprocessing](#step-1-data-preprocessing)  
+   2. [Step 2: Generating Grid Images](#step-2-generating-grid-images)  
+   3. [Step 3: Training the Vision Transformer](#step-3-training-the-vision-transformer)  
+4. [Dataset Availability](#dataset-availability)  
+5. [Citation and Paper Reference](#citation-and-paper-reference)  
+6. [License](#license)
 
 ---
 
-## Overview
+## Repository Structure
 
-Modern malware often utilizes sophisticated code injection and obfuscation tactics, making detection in static binaries increasingly challenging. **VADViT** addresses this gap by analyzing **Virtual Address Descriptor (VAD) regions** from memory dumps. It transforms these memory segments into images that reveal hidden malicious patterns, then classifies them using a **Vision Transformer** architecture.
+```
+VADViT/
+├── data_preprocessing/
+│   ├── dumps_to_consolidated/
+│   │   ├── main_dumps_to_consolidated.py
+│   │   ├── utils_dumps.py
+│   │   └── ...
+│   ├── consolidated_to_grid/
+│   │   ├── main_consolidated_to_grid.py
+│   │   ├── utils_grid.py
+│   │   └── ...
+│   └── README_data_preprocessing.md  (optional, if more details needed)
+├── training/
+│   ├── models/
+│   │   ├── vit_model.py
+│   │   └── ...
+│   ├── utils/
+│   │   ├── data_utils.py
+│   │   └── train_utils.py
+│   ├── main_training.py
+│   └── ...
+├── requirements.txt
+└── README.md  (this file)
+```
 
-**Paper reference:**  
-Dehfouli, Y., & Lashkari, A. H. (2025). *VADViT: A Novel Vision Transformer-Driven Malware Detection Approach for Malicious Process Detection and Explainable Threat Attribution Using Virtual Address Descriptor Regions.* (Preprint)
+### `data_preprocessing/`
+All code related to reading, transforming, and merging the raw memory dump data into a form suitable for model training. It contains **two main subfolders**:
+
+1. **`dumps_to_consolidated/`**  
+   - This reads in the **five memory dumps** per sample (each dump contains data for a single process, typically identified by the malware PID).  
+   - Extracts individual VAD regions from each dump.  
+   - Aggregates these regions into a *consolidated set* representing the malware process over time.
+
+2. **`consolidated_to_grid/`**  
+   - Takes the *consolidated* VAD regions as input.  
+   - Generates the Markov, entropy, and intensity images for each region.  
+   - Fuses these into RGB images and arranges them into a grid to form one final “process-level” image.
+
+Each subfolder has its **own main script** (e.g., `main_dumps_to_consolidated.py` and `main_consolidated_to_grid.py`). **They must be run separately** in the correct order to produce the final image dataset for training.
+
+> **Important**: The preprocessing stage **does not** directly invoke any training code. After you finish these steps, you’ll have a folder of grid images ready for model training.
+
+### `training/`
+Contains scripts and utilities for **building, training, and evaluating** the Vision Transformer on the generated grid images:
+- `models/vit_model.py` (or similarly named): Defines the ViT architecture or integrates an existing implementation.  
+- `utils/`: Helper modules (e.g., data loading, augmentation, metrics).  
+- `main_training.py`: The main entry point to train and evaluate the model.  
+ 
+> **Note**: This training code **does not** generate or modify any memory dumps. It expects preprocessed image data from the steps described above.
 
 ---
 
-## Key Features
+## Prerequisites
 
-1. **Memory Forensics Focus**: Analyzes VAD regions from memory dumps, capturing stealthy code injections, encrypted payloads, and fileless threats.  
-2. **Multi-Modal Image Generation**: Fuses:
-   - **Markov images** (byte-transition probabilities),
-   - **Entropy images** (randomness/encryption),
-   - **Custom intensity images** (protection flags, VAD tags, private pages).
-3. **Vision Transformer (ViT)**:
-   - Leverages self-attention to model spatial relationships between VAD regions.
-   - Achieves robust performance in both **binary** and **multi-class** settings.
-4. **Explainability**:
-   - Highlights highly attended VAD patches.
-   - Maps suspicious memory regions back to original addresses for deeper forensic analysis.
-5. **Dataset Logging**: References the *BCCC-MalMem-SnapLog-2025* dataset with memory dumps at 30-second intervals, capturing process-specific PIDs and system events.
+1. **Operating System**: Linux or Windows (tested primarily on Linux).  
+2. **Python 3.7+**  
+3. **CUDA Toolkit** (if training on a GPU).  
+4. **Dependencies**: See `requirements.txt` for Python libraries (e.g., `PyTorch`, `Pillow`, `NumPy`, `pandas`, etc.).
 
----
-
-## Dataset
-
-The paper introduces **BCCC-MalMem-SnapLog-2025**, a dataset containing periodic memory dumps for malicious and benign processes:
-- **Memory snapshots** collected every 30 seconds (up to 5 dumps per sample).
-- **PID tracking** to isolate each process without sandbox overhead.
-- **Network & system event logs** included for cross-referencing.
-
-Because this dataset is not publicly included here, please refer to the paper or contact the authors for details on obtaining or reproducing it.
-
----
-
-## Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/YaCnDehfuli/VADViT.git
-   cd VADViT
-   ```
-
-2. **Install Dependencies** (Python 3.8+ recommended):
-   ```bash
-   pip install -r requirements.txt
-   ```
-   Main libraries include:
-   - `torch`, `timm`, `numpy`, `pillow`, `scikit-learn`, `matplotlib`, `opencv-python`
-
----
-
-## Usage
-
-### 1. Data Preparation
-- **VAD Extraction**: Use [Volatility 2 or 3](https://www.volatilityfoundation.org/) (`vadinfo`) to extract VADs from each memory dump.  
-- **Image Generation**: Convert each VAD into Markov, entropy, and intensity images. Aggregate them as an RGB image (one channel per feature).  
-- **Directory Structure**: Organize generated images into train/val/test splits.
-
-> *Note:* Example scripts or references are provided in the code to guide you in generating these images, though the dataset itself is not bundled.
-
-### 2. Training
-Train the model on your prepared dataset:
+Install dependencies:
 ```bash
-python train.py
-```
-- **Key training parameters** (see `config.py`):
-  - `NUM_CLASSES` (2 for binary or more for multi-class).
-  - `BATCH_SIZE`, `NUM_EPOCHS`, `LEARNING_RATE`.
-  - `MODEL_NAME` (e.g., `vit_base_patch16_224` or `vit_base_patch32_224`).
-
-### 3. Testing & Explainability
-Evaluate on test splits and optionally visualize attention maps:
-```bash
-python test.py --explain
-```
-- **ROC & Confusion Matrix** are displayed automatically.
-- Use `--explain` to overlay attention heatmaps on suspicious VAD patches.
-
----
-
-## Project Structure
-
-```
-VADViT
-├── config.py             # Global configs (paths, hyperparams, etc.)
-├── train.py              # Training script with progressive layer unfreezing
-├── test.py               # Inference and attention overlay
-├── dataset_loader.py     # VAD dataset loader class
-├── att_visualization.py  # Overlay attention heatmaps for debug/explainability
-├── metrics_visualization.py
-├── training_utils.py
-├── test_utils.py
-└── ...
+pip install -r requirements.txt
 ```
 
 ---
 
-## How It Works
+## Usage Overview
 
-### 1. VAD Extraction
-1. Collect memory dumps at fixed intervals (e.g., 30s).
-2. Run Volatility’s `vadinfo` to list each region (`StartVPN, EndVPN`), capturing metadata (protection flags, VAD tags, private memory, etc.).
+Below is the high-level workflow for using this code.
 
-### 2. Image Generation
-1. **Markov Image**: 256×256 matrix of byte transition probabilities (scaled, enhanced).
-2. **Entropy Image**: Local Shannon entropy of fixed-size windows across the region.
-3. **Intensity Image**: Encodes VAD tag (VadF, VadS, etc.), protection flags (PAGE_EXECUTE, etc.), and private memory in distinct intensities.
+### Step 1: Data Preprocessing
 
-These three grayscale images are stacked into **RGB**:
-- **R** = intensity (protection, VAD tag, private memory),
-- **G** = entropy,
-- **B** = markov transitions.
+1. **Organize Memory Dumps**  
+   Place your raw memory dump files in a suitable directory. Each process should ideally have **five** memory dumps (named or organized by PID and time step).
 
-### 3. Vision Transformer
-- Splits the final RGB image into fixed-size patches (e.g., 16×16 or 32×32).
-- Uses multi-head self-attention to capture relationships among VAD patches.
-- Outputs class probabilities (benign vs. malicious, or multi-class family).
+2. **Run `dumps_to_consolidated/` Scripts**  
+   - Enter the `dumps_to_consolidated/` directory.  
+   - Check `main_dumps_to_consolidated.py` for input paths and parameter settings.  
+   - Execute:  
+     ```bash
+     python main_dumps_to_consolidated.py
+     ```  
+   - This step extracts per-dump VAD regions and combines them into a consolidated dataset (one folder/file per process).
 
-### 4. Explainability
-- Register attention hooks to retrieve the final self-attention layer.
-- Overlay attention onto the original image to pinpoint suspicious VAD offsets.
-- Facilitates deeper forensic triage: which VAD addresses contain potential shellcode?
+3. **Output**  
+   - A consolidated set of VAD regions stored in a structured format (e.g., CSV files or pickled data) for each process.
+
+### Step 2: Generating Grid Images
+
+1. **Run `consolidated_to_grid/` Scripts**  
+   - Enter the `consolidated_to_grid/` directory.  
+   - Update the input path in `main_consolidated_to_grid.py` to point to the consolidated regions from the previous step.  
+   - Execute:
+     ```bash
+     python main_consolidated_to_grid.py
+     ```  
+   - This script:
+     1. Reads each consolidated region set.  
+     2. Converts each region into three images (Markov, Entropy, Intensity).  
+     3. Fuses them into a single RGB image.  
+     4. Places multiple region-images into a grid layout, resulting in a single “process-level” image for each sample.
+
+2. **Output**  
+   - A directory containing final `.png` (or `.jpg`) images that represent each process over the memory snapshots.
+
+### Step 3: Training the Vision Transformer
+
+1. **Prepare your Dataset Splits**  
+   - The final grid images can be divided into train/validation/test subsets. The splitting can be done manually or via included utilities in `training/utils/`.
+
+2. **Configure and Run `main_training.py`**  
+   - Edit any paths or hyperparameters in `main_training.py` (or in the associated `utils/train_utils.py`).  
+   - Execute:
+     ```bash
+     cd training/
+     python main_training.py
+     ```  
+   - Training logs, model checkpoints, and evaluation metrics are saved according to your configuration.
+
+3. **Output**  
+   - Trained model weights.  
+   - Performance metrics such as accuracy, F1-score, confusion matrices, etc.
 
 ---
 
-## Results
+## Dataset Availability
 
-- **Binary Classification**: Achieves up to **99%** accuracy on certain configurations, with an AUC of **0.993**.
-- **Multi-Class**: Scores up to **92%** accuracy across 8 malware families + benign.  
-- **Explainability**: Case studies show the top-attended region contains self-decoding shellcode.
-
-A typical pipeline run involves:
-1. Extracting 5 memory dumps (30s intervals) of a suspicious process.
-2. Generating VAD-based Markov, entropy, and intensity images.
-3. Inferring with VADViT.
-4. Investigating the attention-heavy patches.
+- The memory dumps and the full BCCC-MalMem-SnapLog-2025 dataset are **not** included in this repository due to size and legal constraints.  
+- If you wish to obtain the dataset, please contact us with a request. We may require proof of research intentions and an appropriate usage agreement.
 
 ---
 
-## Future Directions
+## Citation and Paper Reference
 
-- **Dynamic Unfreezing**: Explore more adaptive layer freezing/unfreezing to handle small datasets better.
-- **Hybrid Models**: Merge other backbones (Swin Transformers, ResNets) for multi-scale VAD features.
-- **More VAD Analysis**: Compare enumerated VAD structures with page table entries (PTEs) to detect deeper code manipulation or DKOM-based stealth injections.
-- **Larger-Scale Datasets**: BCCC-MalMem-SnapLog-2025 can be expanded or integrated with publicly available memory corpora to enhance coverage of advanced malware families.
-
----
-
-## Citation
-
-If you use VADViT or the concepts in your research, please cite:
+If you use or build upon this codebase, please cite our paper:
 
 ```
-@misc{dehfouli2025VADViT,
+@article{VADViT202X,
   title={VADViT: A Novel Vision Transformer-Driven Malware Detection Approach for Malicious Process Detection and Explainable Threat Attribution Using Virtual Address Descriptor Regions},
-  author={Dehfouli, Y. and Lashkari, A.H.},
-  year={2025},
-  note={Preprint}
+  author={Dehfouli, Yasin and Lashkari, Arash Habibi},
+  journal={TBD},
+  year={202X},
+  ...
 }
 ```
+
+For further methodological details—such as how the Markov, Entropy, and Intensity channels are generated, or how memory dumps were periodically acquired—please refer to the full paper.
 
 ---
 
 ## License
-This project is licensed under the [MIT License](LICENSE). Feel free to modify and distribute with attribution.
+
+This project is licensed under the [MIT License](LICENSE) (or whichever license you choose). See the [LICENSE](LICENSE) file for details.
 
 ---
 
-**Questions, suggestions, or issues?**  
-Open an [issue](https://github.com/YaCnDehfuli/VADViT/issues) or contact the authors. Happy hunting!
+### Questions or Feedback
+
+If you encounter any issues, have questions, or want to contribute improvements, feel free to open an issue or submit a pull request. We welcome all forms of collaboration!
