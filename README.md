@@ -163,12 +163,13 @@ Below is the high-level workflow for using this code.
 If you use or build upon this codebase, please cite our paper:
 
 ```
-@article{VADViT202X,
+@article{VADViT,
   title={VADViT: A Novel Vision Transformer-Driven Malware Detection Approach for Malicious Process Detection and Explainable Threat Attribution Using Virtual Address Descriptor Regions},
   author={Dehfouli, Yasin and Lashkari, Arash Habibi},
-  journal={TBD},
-  year={202X},
-  ...
+  journal={Computer & Security},
+  pages = {1-1}
+  year={2025},
+  url = {}
 }
 ```
 
