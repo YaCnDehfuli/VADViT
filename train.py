@@ -10,7 +10,6 @@ from dataset.dataset_loader import ImageDataset
 from utils.training_utils import train_and_validate
 from utils.seed import set_seed
 from utils.metrics_visulaization import TrainingVisualizer
-import numpy as np
 
 
 def main():
@@ -19,22 +18,28 @@ def main():
     # Load dataset
     train_dataset = ImageDataset(DATASET_PATH, NUM_CLASSES, MULTICLASSS, split="train")
     val_dataset = ImageDataset(DATASET_PATH, NUM_CLASSES, MULTICLASSS, split="val")
+    test_dataset = ImageDataset(DATASET_PATH, NUM_CLASSES, MULTICLASSS, split="test")
 
-    # Convert datasets into a format that allows hashing
-    train_data, _ = zip(*[train_dataset[i] for i in range(len(train_dataset))])  # Extract images
-    val_data, _ = zip(*[val_dataset[i] for i in range(len(val_dataset))])  # Extract images
+    # Check for data leakage on stable sample identities (image paths). Comparing
+    # pixel statistics is unreliable: augmentation changes them for a single image
+    # and distinct images can collide. Abort rather than warn, so a leaking split
+    # can never silently produce reported metrics.
+    train_paths = set(train_dataset.image_paths())
+    val_paths = set(val_dataset.image_paths())
+    test_paths = set(test_dataset.image_paths())
 
-    # Convert to NumPy arrays for quick comparison
-    train_hash = np.array([np.sum(img.numpy()) for img in train_data])
-    val_hash = np.array([np.sum(img.numpy()) for img in val_data])
+    leaks = {
+        "train/val": train_paths & val_paths,
+        "train/test": train_paths & test_paths,
+        "val/test": val_paths & test_paths,
+    }
+    leaking = {name: shared for name, shared in leaks.items() if shared}
+    if leaking:
+        details = "; ".join(f"{name}: {len(shared)} shared samples" for name, shared in leaking.items())
+        raise RuntimeError(f"Data leakage detected between splits ({details}). Aborting training.")
 
-    # Check for data leakage
-    overlap = np.intersect1d(train_hash, val_hash)
-
-    if len(overlap) > 0:
-        print("Data leakage detected! Training and validation sets are not fully separate.")
-    else:
-        print("No data leakage found!")
+    print(f"No data leakage: {len(train_paths)} train / {len(val_paths)} val / "
+          f"{len(test_paths)} test samples are mutually disjoint.")
 
 
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
