@@ -146,3 +146,39 @@ Below is the high-level workflow for using this code.
    - Performance metrics such as accuracy, F1-score, confusion matrices, etc.
 
 ---
+
+## Dataset Availability
+
+- The memory dumps and the full BCCC-MalMem-SnapLog-2025 dataset are **not** included in this repository due to size and legal constraints.  
+- If you wish to obtain the dataset, please contact us with a request. We may require proof of research intentions and an appropriate usage agreement.
+
+---
+
+## Citation and Paper Reference
+
+If you use or build upon this codebase, please cite our paper:
+
+```
+@article{VADViT,
+  title={VADViT: A Novel Vision Transformer-Driven Malware Detection Approach for Malicious Process Detection and Explainable Threat Attribution Using Virtual Address Descriptor Regions},
+  author={Dehfouli, Yasin and Lashkari, Arash Habibi},
+  journal={Computer & Security},
+  pages = {1-1}
+  year={2025},
+  url = {}
+}
+```
+
+For further methodological details—such as how the Markov, Entropy, and Intensity channels are generated, or how memory dumps were periodically acquired—please refer to the full paper.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE) (or whichever license you choose). See the [LICENSE](LICENSE) file for details.
+
+---
+
+### Questions or Feedback
+
+If you encounter any issues, have questions, or want to contribute improvements, feel free to open an issue or submit a pull request. We welcome all forms of collaboration!
