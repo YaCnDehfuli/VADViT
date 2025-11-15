@@ -1,7 +1,3 @@
-Below is a sample README that follows a more standard structure and focuses on the repository’s code organization and usage rather than the theory behind the paper. Feel free to adapt section names or content as needed.
-
----
-
 # VADViT: Vision Transformer-Driven Malware Detection using VAD Regions
 
 This repository contains the codebase for the **VADViT** framework, which converts Virtual Address Descriptor (VAD) regions from memory dumps into an RGB grid of images and applies a Vision Transformer (ViT) to detect malicious processes. The approach and dataset are described in detail in our paper (citation below). However, this README is dedicated to helping users run and navigate the code.
