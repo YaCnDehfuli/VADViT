@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the VADViT paper."
+title: "VADViT: Vision Transformer-driven memory forensics"
+type: software
+authors:
+  - family-names: Dehfouli
+    given-names: Yasin
+  - family-names: Habibi Lashkari
+    given-names: Arash
+repository-code: "https://github.com/YaCnDehfuli/VADViT"
+license: MIT
+preferred-citation:
+  type: article
+  title: "VADViT: Vision transformer-driven memory forensics for malicious process detection and explainable threat attribution"
+  authors:
+    - family-names: Dehfouli
+      given-names: Yasin
+    - family-names: Habibi Lashkari
+      given-names: Arash
+  journal: "Journal of Information Security and Applications"
+  volume: "94"
+  year: 2025
+  doi: "10.1016/j.jisa.2025.104200"

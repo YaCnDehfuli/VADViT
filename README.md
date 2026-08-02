@@ -1,184 +1,285 @@
-# VADViT: Vision Transformer-Driven Malware Detection using VAD Regions
+# VADViT
 
-This repository contains the codebase for the **VADViT** framework, which converts Virtual Address Descriptor (VAD) regions from memory dumps into an RGB grid of images and applies a Vision Transformer (ViT) to detect malicious processes. The approach and dataset are described in detail in our paper (citation below). However, this README is dedicated to helping users run and navigate the code.
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/ML-PyTorch-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Volatility 3](https://img.shields.io/badge/Forensics-Volatility_3-111827)](https://volatilityfoundation.org/)
+[![Paper DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.jisa.2025.104200-0077B5)](https://doi.org/10.1016/j.jisa.2025.104200)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f.svg)](LICENSE)
 
-> **Note**:  
-> The dataset containing raw memory dumps (BCCC-MalMem-SnapLog-2025) is **not** publicly distributed here. It is available upon request. See the [Dataset Availability](#dataset-availability) section for details.
+**Technical focus:** memory forensics · malicious-process detection · Vision Transformers · VAD analysis · explainable AI
 
----
+VADViT is a memory-forensics research pipeline for malicious-process
+detection from Virtual Address Descriptor (VAD) regions. It extracts process
+memory regions from interval memory snapshots, converts those regions into
+Markov, entropy, and VAD-metadata image channels, arranges them into a
+process-level grid, and trains a Vision Transformer for binary or malware-family
+classification.
 
-## Table of Contents
-1. [Repository Structure](#repository-structure)  
-2. [Prerequisites](#prerequisites)  
-3. [Usage Overview](#usage-overview)  
-   1. [Step 1: Data Preprocessing](#step-1-data-preprocessing)  
-   2. [Step 2: Generating Grid Images](#step-2-generating-grid-images)  
-   3. [Step 3: Training the Vision Transformer](#step-3-training-the-vision-transformer)  
-4. [Dataset Availability](#dataset-availability)  
-5. [Citation and Paper Reference](#citation-and-paper-reference)  
-6. [License](#license)
+The implementation accompanies the paper:
 
----
+> Yasin Dehfouli and Arash Habibi Lashkari, "VADViT: Vision
+> transformer-driven memory forensics for malicious process detection and
+> explainable threat attribution," Journal of Information Security and
+> Applications, 94, 104200, 2025. DOI: `10.1016/j.jisa.2025.104200`.
 
-## Repository Structure
+The paper reports 99.2% binary accuracy for the best VADViT configuration and
+92% macro-averaged F1 for multiclass family classification on
+BCCC-MalMem-SnapLog-2025. Those numbers depend on the dataset, split, training
+configuration, and checkpoints used in the study; this repository does not ship
+the raw memory dumps or trained weights.
 
+
+![VADViT workflow (Published to JISA : `10.1016/j.jisa.2025.104200`)](docs/assets/jisa-workflow.png)
+
+## What This Repository Contains
+
+- Volatility-based VAD extraction from per-sample memory snapshots.
+- Snapshot consolidation that keeps the richest process-memory view for each
+  sample.
+- Region categorization into executable/malware, DLL-backed, and heap/stack
+  groups.
+- Markov, entropy, and intensity-channel image generation for each retained VAD
+  region.
+- Process-level grid construction for ViT inputs.
+- ViT training, validation, test evaluation, and attention-overlay utilities.
+
+## Repository Layout
+
+```text
+Data Preprocessing/
+  Dumps_to_Cnosolidated/       Volatility vadinfo extraction, region division,
+                               and snapshot consolidation
+  Consolidated_to_Grid/        VAD region -> RGB patch -> process grid images
+dataset/                       ImageDataset and train/val/test transforms
+models/                        timm ViT wrapper with configurable frozen blocks
+utils/                         training loop, metrics, attention visualization
+config.py                      training/evaluation configuration
+train.py                       train a ViT on generated grid images
+test.py                        evaluate a saved model, optionally with attention
+sample_test.py                 single-image inspection helper with hard-coded paths
+requirements.txt               Python dependency pins used by the project
 ```
-VADViT/
-├── data_preprocessing/
-│   ├── dumps_to_consolidated/
-│   │   ├── main_dumps_to_consolidated.py
-│   │   ├── utils_dumps.py
-│   │   └── ...
-│   ├── consolidated_to_grid/
-│   │   ├── main_consolidated_to_grid.py
-│   │   ├── utils_grid.py
-│   │   └── ...
-│   └── README_data_preprocessing.md  (optional, if more details needed)
-├── training/
-│   ├── models/
-│   │   ├── vit_model.py
-│   │   └── ...
-│   ├── utils/
-│   │   ├── data_utils.py
-│   │   └── train_utils.py
-│   ├── main_training.py
-│   └── ...
-├── requirements.txt
-└── README.md  (this file)
+
+The directory name `Dumps_to_Cnosolidated` is intentionally documented as it
+exists in the repository, typo included, so commands can be copied directly.
+
+## Data Requirements
+
+Raw dumps are not committed to this repository. The expected preprocessing input
+is organized by malware family and sample hash:
+
+```text
+BASE_DIR/
+  Trojan/
+    <sample_sha256>/
+      Dumps/
+        <pid>_snapshot1.vmem
+        <pid>_snapshot2.vmem
+        ...
+  Benign/
+    <sample_id>/
+      Dumps/
+        <pid>_snapshot1.vmem
 ```
 
-### `data_preprocessing/`
-All code related to reading, transforming, and merging the raw memory dump data into a form suitable for model training. It contains **two main subfolders**:
+Each dump filename must start with the target PID because
+`region_extractor.py` reads the PID from `dump_file.split("_")[0]`. The original
+study used up to five interval snapshots per sample. Samples where the PID is no
+longer present in `windows.pslist` are stopped early; samples with only one dump
+are counted separately because they contain less temporal evidence.
 
-1. **`dumps_to_consolidated/`**  
-   - This reads in the **five memory dumps** per sample (each dump contains data for a single process, typically identified by the malware PID).  
-   - Extracts individual VAD regions from each dump.  
-   - Aggregates these regions into a *consolidated set* representing the malware process over time.
+## Environment
 
-2. **`consolidated_to_grid/`**  
-   - Takes the *consolidated* VAD regions as input.  
-   - Generates the Markov, entropy, and intensity images for each region.  
-   - Fuses these into RGB images and arranges them into a grid to form one final “process-level” image.
+Use a Python environment that matches your CUDA/PyTorch setup. The committed
+requirements file pins the repository's working dependency set; the paper's
+reported experiments should still be reproduced with the exact environment used
+for that run. GPU users may need to install the PyTorch build appropriate for
+their driver before installing the remaining packages.
 
-Each subfolder has its **own main script** (e.g., `main_dumps_to_consolidated.py` and `main_consolidated_to_grid.py`). **They must be run separately** in the correct order to produce the final image dataset for training.
-
-> **Important**: The preprocessing stage **does not** directly invoke any training code. After you finish these steps, you’ll have a folder of grid images ready for model training.
-
-### `training/`
-Contains scripts and utilities for **building, training, and evaluating** the Vision Transformer on the generated grid images:
-- `models/vit_model.py` (or similarly named): Defines the ViT architecture or integrates an existing implementation.  
-- `utils/`: Helper modules (e.g., data loading, augmentation, metrics).  
-- `main_training.py`: The main entry point to train and evaluate the model.  
- 
-> **Note**: This training code **does not** generate or modify any memory dumps. It expects preprocessed image data from the steps described above.
-
----
-
-## Prerequisites
-
-1. **Operating System**: Linux or Windows (tested primarily on Linux).  
-2. **Python 3.7+**  
-3. **CUDA Toolkit** (if training on a GPU).  
-4. **Dependencies**: See `requirements.txt` for Python libraries (e.g., `PyTorch`, `Pillow`, `NumPy`, `pandas`, etc.).
-
-Install dependencies:
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
----
+Volatility 3 is required for the extraction stage. Set its path in
+`Data Preprocessing/Dumps_to_Cnosolidated/config.py`.
 
-## Usage Overview
+## Stage 1: Extract And Consolidate VAD Regions
 
-Below is the high-level workflow for using this code.
+Edit `Data Preprocessing/Dumps_to_Cnosolidated/config.py`:
 
-### Step 1: Data Preprocessing
-
-1. **Organize Memory Dumps**  
-   Place your raw memory dump files in a suitable directory. Each process should ideally have **five** memory dumps (named or organized by PID and time step).
-
-2. **Run `dumps_to_consolidated/` Scripts**  
-   - Enter the `dumps_to_consolidated/` directory.  
-   - Check `main_dumps_to_consolidated.py` for input paths and parameter settings.  
-   - Execute:  
-     ```bash
-     python main_dumps_to_consolidated.py
-     ```  
-   - This step extracts per-dump VAD regions and combines them into a consolidated dataset (one folder/file per process).
-
-3. **Output**  
-   - A consolidated set of VAD regions stored in a structured format (e.g., CSV files or pickled data) for each process.
-
-### Step 2: Generating Grid Images
-
-1. **Run `consolidated_to_grid/` Scripts**  
-   - Enter the `consolidated_to_grid/` directory.  
-   - Update the input path in `main_consolidated_to_grid.py` to point to the consolidated regions from the previous step.  
-   - Execute:
-     ```bash
-     python main_consolidated_to_grid.py
-     ```  
-   - This script:
-     1. Reads each consolidated region set.  
-     2. Converts each region into three images (Markov, Entropy, Intensity).  
-     3. Fuses them into a single RGB image.  
-     4. Places multiple region-images into a grid layout, resulting in a single “process-level” image for each sample.
-
-2. **Output**  
-   - A directory containing final `.png` (or `.jpg`) images that represent each process over the memory snapshots.
-
-### Step 3: Training the Vision Transformer
-
-1. **Prepare your Dataset Splits**  
-   - The final grid images can be divided into train/validation/test subsets. The splitting can be done manually or via included utilities in `training/utils/`.
-
-2. **Configure and Run `main_training.py`**  
-   - Edit any paths or hyperparameters in `main_training.py` (or in the associated `utils/train_utils.py`).  
-   - Execute:
-     ```bash
-     cd training/
-     python main_training.py
-     ```  
-   - Training logs, model checkpoints, and evaluation metrics are saved according to your configuration.
-
-3. **Output**  
-   - Trained model weights.  
-   - Performance metrics such as accuracy, F1-score, confusion matrices, etc.
-
----
-
-## Dataset Availability
-
-- The memory dumps and the full BCCC-MalMem-SnapLog-2025 dataset are **not** included in this repository due to size and legal constraints.  
-- If you wish to obtain the dataset, please contact us with a request. We may require proof of research intentions and an appropriate usage agreement.
-
----
-
-## Citation and Paper Reference
-
-If you use or build upon this codebase, please cite our paper:
-
+```python
+BASE_DIR = "/path/to/BCCC-MalMem-SnapLog-2025"
+OUTPUT_DIR = "/path/to/intermediate_vad_regions"
+CONSOLIDATED_DIR = "/path/to/consolidated_vad_regions"
+VOLATILITY = "/path/to/volatility3/vol.py"
 ```
-@article{VADViT,
-  title={VADViT: A Novel Vision Transformer-Driven Malware Detection Approach for Malicious Process Detection and Explainable Threat Attribution Using Virtual Address Descriptor Regions},
-  author={Dehfouli, Yasin and Lashkari, Arash Habibi},
-  journal={Computer & Security},
-  pages = {1-1}
-  year={2025},
-  url = {}
+
+Run the extraction pipeline:
+
+```bash
+cd "Data Preprocessing/Dumps_to_Cnosolidated"
+python main.py
+```
+
+This stage performs three operations for each sample:
+
+1. Runs `windows.pslist` to confirm the target PID exists in each snapshot.
+2. Runs `windows.vadinfo --pid <pid> --dump` and writes `vadinfo.csv` plus dumped
+   VAD region files.
+3. Sorts retained regions into `malware_executable/`, `dlls/`, and
+   `heap_and_stack/`, then copies the snapshot with the most executable/DLL
+   regions into `CONSOLIDATED_DIR`.
+
+The consolidated output is expected to look like this:
+
+```text
+CONSOLIDATED_DIR/
+  Trojan/
+    <sample_sha256>/
+      malware_executable/
+        malware_executable_regions.csv
+        vad.0x...dmp
+      dlls/
+        dll_regions.csv
+        vad.0x...dmp
+```
+
+## Stage 2: Build Process Grid Images
+
+Edit `Data Preprocessing/Consolidated_to_Grid/config.py`:
+
+```python
+IMAGE_SIZE = 224       # paper evaluates 224 and 384
+PATCH_SIZE = 32        # paper evaluates 16 and 32
+CONSOLIDATED_DIR = "/path/to/consolidated_vad_regions"
+IMAGE_DATASET_DIR = "/path/to/image_datasets"
+```
+
+Run grid generation:
+
+```bash
+cd "Data Preprocessing/Consolidated_to_Grid"
+python main.py
+```
+
+For each retained VAD region, `process2image.py` creates:
+
+- red channel: VAD tag and protection metadata intensity;
+- green channel: dynamic-window Shannon entropy;
+- blue channel: Markov byte-transition structure.
+
+Executable regions are placed first in ascending VAD address order, followed by
+DLL-backed regions. Empty grid cells are zero-padded. The output path is:
+
+```text
+IMAGE_DATASET_DIR/
+  32_224/
+    Trojan/
+      <sample_sha256>.png
+    Benign/
+      <sample_id>.png
+```
+
+## Stage 3: Train VADViT
+
+Edit the root `config.py`:
+
+```python
+IMAGE_SIZE = 224
+PATCH_SIZE = 32
+MODE = "Binary"        # "Binary" or "Multi"
+FROZEN_LAYERS = 6
+STEPS = 3
+DATASET_PATH = "/path/to/image_datasets/32_224/32_224_Binary"
+SAVE_PATH = "./models/Binary_32_224_6f_3u.pt"
+```
+
+Then run:
+
+```bash
+python train.py
+```
+
+The dataset loader creates an 80/10/10 train/validation/test split from class
+folders under `DATASET_PATH`. For binary mode, `Benign` maps to class `0` and
+every other folder maps to class `1`. For multiclass mode, folders are sorted
+alphabetically and mapped to numeric labels.
+
+Training uses a timm ViT backbone, label-smoothed cross-entropy,
+ReduceLROnPlateau, gradual unfreezing of frozen transformer blocks, temperature
+scaling during prediction, and late stochastic weight averaging. The best model
+is saved to `SAVE_PATH`; the metric plot is saved as `training_plot.png`.
+
+## Evaluation And Explainability
+
+Evaluate a saved model:
+
+```bash
+python test.py
+```
+
+Enable last-block attention visualization:
+
+```bash
+python test.py --explain
+```
+
+`test.py` loads the `test` split from `DATASET_PATH`, prints a classification
+report and confusion matrix, and writes ROC/confusion-matrix plots to the folders
+configured by `AUC_FOLDER` and `CM_FOLDER`. The ROC helper is designed around
+binary scoring, so use it carefully when `MODE = "Multi"`.
+
+For one-off inspection, edit the hard-coded paths in `sample_test.py` and run:
+
+```bash
+python sample_test.py
+```
+
+That helper loads one process-grid image, prints class probabilities, displays
+an attention overlay, and lists the executable/DLL VAD region files so the patch
+order can be traced back to addresses.
+
+## Paper Configuration Notes
+
+The paper evaluates combinations of image size, patch size, and frozen-layer
+strategy. The strongest binary configuration was `PATCH_SIZE=32`,
+`IMAGE_SIZE=224`, `FROZEN_LAYERS=6`, and `STEPS=3`. The multiclass experiment
+uses the same `32_224_6f` family-label setting as one of the two final
+configurations.
+
+The paper's dataset, BCCC-MalMem-SnapLog-2025, includes malware samples from
+Backdoor, Exploit, HackTool, Hoax, Rootkit, Trojan, Virus, and Worm families,
+plus benign samples. Raw dumps are omitted here due to size and handling
+constraints.
+
+## Important Boundaries
+
+- VADViT analyzes memory regions captured from a target process; it is not a
+  live EDR or antivirus product.
+- Attention maps are forensic leads, not proof of causality.
+- Reported metrics require the original dataset, split discipline, and training
+  setup; do not reuse them for a different corpus without re-evaluation.
+- Volatility symbol support and dump quality directly affect region extraction.
+
+## Citation
+
+```bibtex
+@article{dehfouli2025vadvit,
+  title = {VADViT: Vision transformer-driven memory forensics for malicious process detection and explainable threat attribution},
+  author = {Dehfouli, Yasin and Lashkari, Arash Habibi},
+  journal = {Journal of Information Security and Applications},
+  volume = {94},
+  pages = {104200},
+  year = {2025},
+  doi = {10.1016/j.jisa.2025.104200}
 }
 ```
 
-For further methodological details—such as how the Markov, Entropy, and Intensity channels are generated, or how memory dumps were periodically acquired—please refer to the full paper.
-
----
-
 ## License
 
-This project is licensed under the [MIT License](LICENSE) (or whichever license you choose). See the [LICENSE](LICENSE) file for details.
-
----
-
-### Questions or Feedback
-
-If you encounter any issues, have questions, or want to contribute improvements, feel free to open an issue or submit a pull request. We welcome all forms of collaboration!
+[MIT](LICENSE). Dataset access and third-party tools used with the pipeline may
+have separate terms. If this repository supports your work, please cite the
+paper using [`CITATION.cff`](CITATION.cff).
