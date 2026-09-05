@@ -6,6 +6,7 @@ detection, with attention-based ranking of the memory regions that drove the ver
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.jisa.2025.104200-0077B5)](https://doi.org/10.1016/j.jisa.2025.104200)
+[![Release](https://img.shields.io/github/v/release/YaCnDehfuli/VADViT)](https://github.com/YaCnDehfuli/VADViT/releases)
 
 ## Results
 
