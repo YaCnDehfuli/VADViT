@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Replace author-machine input/output paths with repository-relative defaults and `VADVIT_*` overrides.
+- Process every sample by default; support explicit inclusive `--resume-from HASH`.
+- Require single-sample identifiers and retain contiguous executable/DLL region numbering.
+- Pin PyTorch 2.1.0 with torchvision 0.16.0 and add seaborn; verify imports and CLI help on CPython 3.10 with CPU wheels.
+- Correct citation author fields and article number against the Crossref record for DOI 10.1016/j.jisa.2025.104200.
+- Remove tracked bytecode, retain the externally referenced preprocessing directory name, and add shared portfolio navigation.
+
+
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

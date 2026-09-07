@@ -1,8 +1,6 @@
 # import os
 # import shutil
 
-# Categorized_Regioned_Data_Folder = "/home/yacn/Categorized_Regioned_Data"
-# consolidated_Regions_dir = "/home/yacn/Consolidated_Categorized_Regions"
 
 # # Ensure the destination directory exists
 # os.makedirs(consolidated_Regions_dir, exist_ok=True)
@@ -79,7 +77,7 @@ def consolidate_regions(parent_dump_folder, target_dir):
             max_regions = count
             chosen_dump_folder_path = dump_folder_path
 
-    print(f"Chosen dump folder : {chosen_dump_folder_path.strip("/")[-1]}")
+    print(f"Chosen dump folder : {chosen_dump_folder_path.strip('/')[-1]}")
 
     os.makedirs(target_dir, exist_ok=True)
 

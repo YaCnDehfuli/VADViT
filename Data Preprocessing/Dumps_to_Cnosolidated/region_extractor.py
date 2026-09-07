@@ -1,15 +1,16 @@
 import os
 import subprocess
 import re
+import sys
 from config import *
 
 def is_pid_in_pslist(dump_file, pid):
     pslist_cmd = [
-        "python3", VOLATILITY, "-f", dump_file, "windows.pslist"
+        sys.executable, str(VOLATILITY), "-f", dump_file, "windows.pslist"
     ]
     try:
         result = subprocess.run(pslist_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=True)
-        return bool(re.search(rf"\b{re.escape(f"{pid}")}\b", str(result.stdout)))
+        return bool(re.search(rf"\b{re.escape(str(pid))}\b", str(result.stdout)))
     except subprocess.CalledProcessError as e:
         print(f"Error running pslist on {dump_file}: {e}")
         return False
@@ -18,7 +19,7 @@ def process_dump_file(pid, dump_file, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     vadinfo_file = os.path.join(output_dir, "vadinfo.csv")
-    vaddump_cmd = ["python3", VOLATILITY, "-f", dump_file, "-o", output_dir , "windows.vadinfo", f"--pid={pid}", "--dump"]
+    vaddump_cmd = [sys.executable, str(VOLATILITY), "-f", dump_file, "-o", output_dir , "windows.vadinfo", f"--pid={pid}", "--dump"]
 
     try:
         # logger.info(f"Processing dump file: {dump_file} for PID: {pid}")
@@ -63,7 +64,6 @@ def extract_regions_dumps_folder(dumps_folder, output_dir):
 
 #     dumps_folder = os.path.join(hash_path, "Dumps")
 #     if os.path.exists(dumps_folder):
-#         output_family_dir = os.path.join(output_dir, "HackTool", "4fd11d7286579a0b5d72786b68ec1b6204a21c45040a440394eac4ad66523937")
 #         os.makedirs(output_family_dir, exist_ok=True)
 #         extract_regions_dumps_folder(dumps_folder, output_family_dir)
         

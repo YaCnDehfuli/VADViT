@@ -1,85 +1,74 @@
-import torch
-from torchvision import transforms
-from PIL import Image
-from config import NUM_CLASSES, SAVE_PATH, MODEL_NAME
-from models.ViT_model import ViTForImages
-from utils.att_visualization import overlay_attention
-from utils.seed import set_seed
-import os, re
+"""Run single-sample inference and inspect memory regions.
 
-# --------------- CONFIG ---------------
-set_seed(42)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-path = "/media/yacn/My Book Duo/Image_Datasets_family/32_224"
-family = "HackTool"
-hash = "0e1e3867a0fbfd8ac7d65d3ac9d6e9dd1b4778504d92315b22658c6e68d17bf2"
-image_path = f"{path}/{family}/{hash}.png"  
+Set VADVIT_IMAGE_DATASETS_DIR and VADVIT_CONSOLIDATED_DIR, or pass the roots
+explicitly. A sample family and hash are required; no author-machine sample is
+selected implicitly.
+"""
+import argparse
+import os
+import re
+from pathlib import Path
 
-# --------------- Load Model ---------------
-att_outputs = {}
-
-def get_attention_scores(name):
-    def hook(module, input, output):
-        qkv = module.qkv(input[0])
-        q, k, v = qkv.chunk(3, dim=-1)
-        attn_scores = (q @ k.transpose(-2, -1)) / (q.shape[-1] ** 0.5)
-        att_outputs[name] = attn_scores.softmax(dim=-1).detach().cpu()
-        return output
-    return hook
-
-model = ViTForImages(MODEL_NAME, NUM_CLASSES).to(device)
-model.vit.blocks[-1].attn.register_forward_hook(get_attention_scores("attn"))
-model.load_state_dict(torch.load(SAVE_PATH, map_location=device))
-model.eval()
-
-# --------------- Load and Transform Image ---------------
-
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-])
-
-image = Image.open(image_path).convert("RGB")
-image_tensor = transform(image).unsqueeze(0).to(device)
-
-# --------------- Predict ---------------
-with torch.no_grad():
-    output = model(image_tensor)
-    probs = torch.nn.functional.softmax(output, dim=1)
-    pred = torch.argmax(probs, dim=1).item()
-
-print(f"Predicted Class: {pred}, Probabilities: {probs.squeeze().cpu().numpy()}")
-
-# --------------- Attention Overlay ---------------
-if "attn" in att_outputs:
-    cls_attention = att_outputs["attn"][:, 0, 1:].mean(dim=0)  # Class token attention
-    overlay_attention(image_tensor[0], cls_attention)
-
-
-# ---------------- Region Addr to Patch match --------
-regions_dir = "/media/yacn/My Book Duo/BCCC_Consolidated_Dataset"
-sample_regions_path = f"{regions_dir}/{family}/{hash}"
-exe_folder = os.path.join(sample_regions_path, "malware_executable")
-dll_folder = os.path.join(sample_regions_path, "dlls")
-pattern = re.compile(r'vad\.0x([0-9a-fA-F]+)')
+from config import IMAGE_SIZE, MODEL_NAME, NUM_CLASSES, PATCH_SIZE, SAVE_PATH, env_path
 
 def extract_memory_address(filename):
-    match = pattern.search(filename)
-    if match:
-        return int(match.group(1), 16)
-    return None
+    match = re.search(r"vad\.0x([0-9a-fA-F]+)", filename)
+    return int(match.group(1), 16) if match else None
 
-exe_regs = sorted([exe_reg for exe_reg in os.listdir(exe_folder) if exe_reg.endswith(".dmp")])
-dll_regs = sorted([dll_reg for dll_reg in os.listdir(dll_folder) if dll_reg.endswith(".dmp")])
 
-print(f"{len(exe_regs)} EXE REGIONS and  {len(dll_regs)} DLL Regions")
-c = 0
-for reg in exe_regs:
-    print(f"{c}. {reg}")
-    c += 1
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("family", help="sample family, for example HackTool")
+    parser.add_argument("sample_hash", help="sample hash")
+    parser.add_argument("--image-root", type=Path, default=env_path("VADVIT_IMAGE_DATASETS_DIR", "data/Image_Datasets"))
+    parser.add_argument("--regions-root", type=Path, default=env_path("VADVIT_CONSOLIDATED_DIR", "data/BCCC_Consolidated_Dataset"))
+    args = parser.parse_args()
+    image_path = args.image_root / f"{PATCH_SIZE}_{IMAGE_SIZE}" / args.family / f"{args.sample_hash}.png"
+    sample_regions_path = args.regions_root / args.family / args.sample_hash
+    for required in (image_path, sample_regions_path):
+        if not required.exists():
+            raise FileNotFoundError(f"Required sample input does not exist: {required}")
 
-for reg in dll_regs:
-    print(f"{c}. {reg}")
-    c += 1
+    import torch
+    from PIL import Image
+    from torchvision import transforms
+    from models.ViT_model import ViTForImages
+    from utils.att_visualization import overlay_attention
+    from utils.seed import set_seed
 
-    
+    set_seed(42)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    att_outputs = {}
+
+    def hook(module, input, output):
+        qkv = module.qkv(input[0])
+        q, k, _ = qkv.chunk(3, dim=-1)
+        att_outputs["attn"] = ((q @ k.transpose(-2, -1)) / (q.shape[-1] ** 0.5)).softmax(dim=-1).detach().cpu()
+        return output
+
+    model = ViTForImages(MODEL_NAME, NUM_CLASSES).to(device)
+    model.vit.blocks[-1].attn.register_forward_hook(hook)
+    model.load_state_dict(torch.load(SAVE_PATH, map_location=device))
+    model.eval()
+    image = Image.open(image_path).convert("RGB")
+    image_tensor = transforms.Compose([transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)), transforms.ToTensor()])(image).unsqueeze(0).to(device)
+    with torch.no_grad():
+        probs = torch.nn.functional.softmax(model(image_tensor), dim=1)
+    print(f"Predicted Class: {torch.argmax(probs, dim=1).item()}, Probabilities: {probs.squeeze().cpu().numpy()}")
+    if "attn" in att_outputs:
+        overlay_attention(image_tensor[0], att_outputs["attn"][:, 0, 1:].mean(dim=0))
+
+    region_index = 0
+    for folder_name in ("malware_executable", "dlls"):
+        folder = sample_regions_path / folder_name
+        if not folder.is_dir():
+            raise FileNotFoundError(f"Required region folder does not exist: {folder}")
+        regions = sorted(p.name for p in folder.iterdir() if p.suffix == ".dmp")
+        print(f"{len(regions)} {folder_name} regions")
+        for region in regions:
+            print(f"{region_index}. {region}")
+            region_index += 1
+
+
+if __name__ == "__main__":
+    main()
