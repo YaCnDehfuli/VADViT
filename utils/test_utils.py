@@ -14,6 +14,7 @@ auc_folder = AUC_FOLDER
 cm_folder = CM_FOLDER
 
 def plot_curve(fpr, tpr, roc_auc, thresholds, model_name):
+    os.makedirs(auc_folder, exist_ok=True)
     # Plot ROC Curve
     plt.figure(figsize=(8, 6))
     plt.plot(fpr, tpr, color='blue', lw=2, label=f'ROC curve (AUC = {roc_auc:.3f})')
@@ -39,6 +40,7 @@ def plot_curve(fpr, tpr, roc_auc, thresholds, model_name):
 
 
 def plot_cm(cm, model_name):
+    os.makedirs(cm_folder, exist_ok=True)
     plt.figure(figsize=(6, 5))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["Negative", "Positive"], yticklabels=["Negative", "Positive"])
     plt.xlabel("Predicted Label")

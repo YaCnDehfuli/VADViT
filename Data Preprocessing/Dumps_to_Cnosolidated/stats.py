@@ -1,29 +1,29 @@
-from config import *
+"""Report dump-region counts for a generated dataset."""
+import argparse
 import os
+from pathlib import Path
 
-dataset_dict = {}
-for family in os.listdir("/run/media/yacn/65f70eee-4af1-4d19-b61b-8b23a6eff4d4/home/adam/BCCC_Dataset"):
-    family_dict = {'timeout': 0, 'single': 0, 'multiple': 0}
-    family_path = os.path.join("/run/media/yacn/65f70eee-4af1-4d19-b61b-8b23a6eff4d4/home/adam/BCCC_Dataset", family)
-    if not os.path.isdir(family_path):
-        continue
-
-    for hash in os.listdir(family_path):
-        hash_path = os.path.join(family_path, hash)
-        if not os.path.isdir(hash_path):
-            continue
-        
-        dumps_count = len(os.listdir(hash_path))
-        if dumps_count == 1:
-            family_dict['single'] += 1
-        elif dumps_count > 1:
-            family_dict['multiple'] += 1
-        else:
-            family_dict['timeout'] += 1
-            print("NOT possible")
-        
-    
-    dataset_dict[family] = family_dict
+from config import OUTPUT_DIR
 
 
-print(dataset_dict)
+def collect_stats(dataset_dir: Path):
+    if not dataset_dir.is_dir():
+        raise FileNotFoundError(
+            f"Dataset directory does not exist: {dataset_dir}. Set VADVIT_REGIONS_DIR."
+        )
+    dataset_dict = {}
+    for family_path in sorted((p for p in dataset_dir.iterdir() if p.is_dir()), key=lambda p: p.name):
+        counts = {"timeout": 0, "single": 0, "multiple": 0}
+        for sample_path in family_path.iterdir():
+            if not sample_path.is_dir():
+                continue
+            count = sum(1 for entry in sample_path.iterdir())
+            counts["single" if count == 1 else "multiple" if count > 1 else "timeout"] += 1
+        dataset_dict[family_path.name] = counts
+    return dataset_dict
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset-dir", type=Path, default=OUTPUT_DIR)
+    print(collect_stats(parser.parse_args().dataset_dir))

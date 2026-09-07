@@ -1,40 +1,42 @@
 # VADViT
 
-Vision-transformer classification of Windows process memory for malicious-process
-detection, with attention-based ranking of the memory regions that drove the verdict.
+VADViT classifies Windows process memory with a Vision Transformer and ranks the
+memory regions that contributed most to each verdict.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.jisa.2025.104200-0077B5)](https://doi.org/10.1016/j.jisa.2025.104200)
 [![Release](https://img.shields.io/github/v/release/YaCnDehfuli/VADViT)](https://github.com/YaCnDehfuli/VADViT/releases)
 
 ## Results
 
-Published in the Journal of Information Security and Applications, vol. 94, art. 104200 (2025).
+Published in the *Journal of Information Security and Applications*, vol. 94,
+art. 104200 (2025).
 
 | Task                                   | Metric              | Score |
 | -------------------------------------- | ------------------- | ----- |
 | Malicious vs. benign process detection | Accuracy            | 99.2% |
 | Malware family attribution             | Macro-averaged F1   | 92%   |
 
-Evaluated on BCCC-MalMem-SnapLog-2025. Attention-based ranking orders VAD regions by
-their contribution to the verdict, narrowing the region set an analyst reviews by hand.
+These results are from BCCC-MalMem-SnapLog-2025. Attention-based ranking orders
+VAD regions by their contribution to the verdict, reducing the set an analyst
+must inspect manually.
 
-![Architecture](docs/figures/architecture.svg)
+<img src="docs/figures/architecture.svg" alt="VADViT architecture" width="880">
 
-**Research artifact.** This is the reference implementation for a published paper. It is
-not an endpoint agent, a detection product, or a live monitoring tool.
+**Research artifact.** This repository is the reference implementation for the
+published paper. It is not an endpoint agent, detection product, or live
+monitoring tool.
 
 ## Quickstart
 
-A clean checkout does not include memory dumps or trained weights. The commands
-below create an environment from `requirements.txt` and import the model class.
-They do not train or reproduce the published scores.
+A clean checkout includes neither memory dumps nor trained weights. The commands
+below install the pinned environment and verify that the model and test entry
+point import correctly. They do not train the model or reproduce the published
+scores.
 
-`requirements.txt` pins `torch==2.0.0` and `timm==0.6.12`. Use CPython 3.10.
-CPython 3.11 fails on `import timm` (mutable dataclass default in
-`timm.models.maxxvit`). Newer system `python3` builds cannot install these
-wheels.
+Use CPython 3.10. The pinned environment uses `torch==2.1.0`,
+`torchvision==0.16.0` and `timm==0.6.12`.
 
 ```bash
 python3.10 -m venv .venv
@@ -42,48 +44,49 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -c "from models.ViT_model import ViTForImages; from config import MODEL_NAME, MODE, NUM_CLASSES; print(MODEL_NAME, MODE, NUM_CLASSES)"
+python test.py --help
 ```
-
-`test.py --help` imports `seaborn` via `utils/test_utils.py`. That package is
-not in `requirements.txt`, so the help command fails on a clean install.
 
 ## How it works
 
-`Data Preprocessing/Dumps_to_Cnosolidated/region_extractor.py` walks each sample's
-`Dumps/` folder. The PID is the prefix of the `.vmem` filename before the first
-underscore. For every snapshot still listing that PID, Volatility 3 is invoked as
-`windows.vadinfo --pid=<pid> --dump`. `windows.pslist` is used only as a presence
-check. Samples with a single dump are flagged `timeout` and skipped.
+`Data Preprocessing/Dumps_to_Cnosolidated/region_extractor.py` traverses each
+sample's `Dumps/` directory. It reads the PID from the `.vmem` filename prefix
+before the first underscore. For each snapshot that still lists the PID, the
+extractor runs Volatility 3 as `windows.vadinfo --pid=<pid> --dump`;
+`windows.pslist` serves only as a presence check. Samples with a single dump are
+marked `timeout` and skipped.
 
-`region_divider.py` then splits dumped regions into `malware_executable/`, `dlls/`,
-and `heap_and_stack/` from the `vadinfo.csv` protection and mapped-file fields.
-`dump_selector.py` copies the snapshot that holds the largest combined executable
-plus DLL region count into the consolidated tree. Grid construction later uses
-only `malware_executable` and `dlls`. Keep the `Dumps_to_Cnosolidated` directory
-name as committed.
+`region_divider.py` classifies dumped regions as `malware_executable/`, `dlls/`,
+or `heap_and_stack/` from the protection and mapped-file fields in `vadinfo.csv`.
+`dump_selector.py` copies the snapshot with the largest combined count of
+executable and DLL regions into the consolidated tree. Grid construction uses
+only `malware_executable` and `dlls`. Keep the committed
+`Dumps_to_Cnosolidated` spelling.
 
-`Data Preprocessing/Consolidated_to_Grid/process2image.py` turns each retained
-`.dmp` into a square RGB patch. Red is a constant VAD-tag plus protection intensity.
-Green is windowed Shannon entropy (`ENT_METHOD = DYNAMIC` in the committed
-grid config). Blue is a downsampled Markov byte-transition matrix. Patches are
-sorted by the `vad.0x...` address in the filename, executable regions first, then
-DLL regions, and pasted into a process-level grid. Empty cells are zero-padded.
-Overflow is truncated to the grid capacity.
+`Data Preprocessing/Consolidated_to_Grid/process2image.py` converts each retained
+`.dmp` file into a square RGB patch. Red encodes a constant VAD tag plus
+protection intensity; green encodes windowed Shannon entropy (the committed grid
+config sets `ENT_METHOD = DYNAMIC`); blue encodes a downsampled Markov
+byte-transition matrix. The pipeline sorts patches by the `vad.0x...` address
+in the filename, places executable regions before DLL regions, and assembles a
+process-level grid. It zero-pads empty cells and truncates overflow to the grid
+capacity.
 
-`models/ViT_model.py` loads a pretrained `timm` Vision Transformer named by
-`MODEL_NAME` (`vit_base_patch{PATCH_SIZE}_{IMAGE_SIZE}`) and replaces the
-classification head. `MODE` in `config.py` selects one head: two classes for
-`Binary`, nine for `Multi`. Training in `utils/training_utils.py` freezes the
-first `FROZEN_LAYERS` blocks, unfreezes them in `STEPS` later epochs, uses
-label-smoothed cross-entropy, temperature-scaled softmax (`T = 0.7`), and
-stochastic weight averaging from epoch 32.
+`models/ViT_model.py` loads the pretrained `timm` Vision Transformer selected by
+`MODEL_NAME` (`vit_base_patch{PATCH_SIZE}_{IMAGE_SIZE}`) and replaces its
+classification head. `MODE` in `config.py` selects two classes for `Binary` or
+nine for `Multi`. The training loop in `utils/training_utils.py` freezes the
+first `FROZEN_LAYERS` blocks, progressively unfreezes them over `STEPS`, uses
+label-smoothed cross-entropy and temperature-scaled softmax (`T = 0.7`), and
+starts stochastic weight averaging at epoch 32.
 
-`test.py --explain` and `sample_test.py` register a forward hook on the last
-attention block, take the class-token row, and overlay it with
-`utils/att_visualization.py`. Each grid cell maps back to one VAD region file
-so an analyst can open the highest-attention addresses first.
+`test.py --explain` and `sample_test.py` register a forward hook on the final
+attention block, extract the class-token row, and render the overlay through
+`utils/att_visualization.py`. Because every grid cell maps to one VAD region
+file, an analyst can inspect the highest-attention addresses first.
 
-![Attention overlay](docs/figures/attention-overlay.png)
+<img src="docs/figures/attention-overlay.png" alt="Attention overlay" width="880">
+
 *Published Fig. 16: attention overlaid on a process-level VAD grid. Left: a
 strongly attended cell the paper describes as indicative of malicious behavior.
 Right: a moderately attended cell. The paper does not name a PID or virtual
@@ -91,36 +94,16 @@ address on this figure. Ranked cells are the subset an analyst inspects first.*
 
 ## Reproducing the published results
 
-The paper evaluates BCCC-MalMem-SnapLog-2025. Raw dumps and checkpoints are not
-in this repository. The paper's data-availability note says the captured dumps
-are distributed to academic researchers on request (it names that bundle
-BCCC-Mal-NetMem-2025 and states a non-commercial academic licence). Do not
-assume a public download.
+The paper evaluates BCCC-MalMem-SnapLog-2025. This repository does not include
+the raw dumps or checkpoints. The paper's data-availability statement says the
+captured dumps are available to academic researchers on request under the name
+BCCC-Mal-NetMem-2025 and a non-commercial academic licence. The dataset should
+not be treated as a public download.
 
-Committed configs still point at the authors' machines. Edit them before any
-run; do not expect the checked-in paths to exist.
+Set the input and output locations using the [configuration guide](docs/configuration.md).
+The preprocessing stages share the same consolidated-region location.
 
-- Root `config.py`: `DATASET_PATH = /home/yacn/Datasets/...`,
-  `AUC_FOLDER = /home/yacn/AUCs/`, `CM_FOLDER = /home/yacn/CMs/`,
-  `SAVE_PATH = ./models/{MODE}_{PATCH_SIZE}_{IMAGE_SIZE}_{FROZEN_LAYERS}f_{STEPS}u.pt`.
-  Current values are `MODE = "Multi"`, `IMAGE_SIZE = 224`, `PATCH_SIZE = 32`,
-  `FROZEN_LAYERS = 6`, `STEPS = 3`.
-- `sample_test.py`: `/media/yacn/My Book Duo/Image_Datasets_family/32_224` and
-  `/media/yacn/My Book Duo/BCCC_Consolidated_Dataset`, plus a hard-coded
-  HackTool sample hash.
-- `Data Preprocessing/Dumps_to_Cnosolidated/config.py`:
-  `BASE_DIR`, `OUTPUT_DIR`, `CONSOLIDATED_DIR`, and `VOLATILITY` under
-  `/run/media/adam/...` and `/home/adam/...`.
-- `Data Preprocessing/Consolidated_to_Grid/config.py`:
-  `CONSOLIDATED_DIR` on an external volume and
-  `IMAGE_DATASET_DIR = /home/yacn/Image_Datasets`. That file is set to
-  `IMAGE_SIZE = 384`, `PATCH_SIZE = 16`, which is not the published best
-  binary setting (`32`, `224`, six frozen layers, three unfreeze steps).
-- `Data Preprocessing/Dumps_to_Cnosolidated/main.py` skips samples until it
-  sees hash `8bc53c486cba7fca5ffe4dd43976cbaac6bfb24acc95d23da5ad5bc0e0689a3e`.
-  That resume latch is leftover author-machine state.
-
-After the paths exist:
+With the required inputs configured:
 
 ```bash
 cd "Data Preprocessing/Dumps_to_Cnosolidated"
@@ -133,16 +116,18 @@ python test.py
 python test.py --explain
 ```
 
-Expected artifacts if a run finishes: the checkpoint at `SAVE_PATH`,
-`training_plot.png`, and ROC / confusion-matrix PDFs under `AUC_FOLDER` and
-`CM_FOLDER`. `sample_test.py` prints class probabilities, shows an overlay, and
-lists executable then DLL region filenames in address-sortable order.
+On completion, the run writes a checkpoint to `SAVE_PATH`,
+`training_plot.png`, and ROC and confusion-matrix PDFs under `AUC_FOLDER` and
+`CM_FOLDER`. `sample_test.py` prints class probabilities, displays an overlay,
+and lists executable-region filenames followed by DLL-region filenames in
+address-sortable order.
 
-The paper's training notes differ from this tree in places that were left as-is:
-paper `torch==2.1.0` vs committed `torch==2.0.0`; paper AdamW with weight decay
-vs `optim.Adam` in `train.py`; paper `ReduceLROnPlateau` factor `0.5` vs `0.33`
-here. `dataset/dataset_loader.py` builds an 80/10/10 split with seed `42`.
-`train.py` aborts if those splits share image paths.
+The paper's training description differs from the current implementation in two
+places. It specifies AdamW with weight decay; the exact weight-decay value has not
+yet been verified against the paper. `train.py` uses `optim.Adam`. It also reports a
+`ReduceLROnPlateau` factor of `0.5`, while this tree uses `0.33`. These
+differences remain unresolved. `dataset/dataset_loader.py` creates an 80/10/10
+split with seed `42`, and `train.py` aborts if the splits share image paths.
 
 ## Limitations
 
@@ -185,11 +170,15 @@ Crossref record for `10.1016/j.jisa.2025.104200` (preferred):
 }
 ```
 
-`CITATION.cff` stores the second author as family name `Habibi Lashkari` and
-given name `Arash`, and omits the article number / pages field. The published
-DOI record above is the one to copy.
-
 ## Related work in this portfolio
 
-- [VolMemLyzer3](https://github.com/YaCnDehfuli/VolMemLyzer3-CLI_forensic_tool) — the extraction layer
-- [MemTriage](https://github.com/YaCnDehfuli/MemTriage) — the analyst workspace that consumes this model
+Memory forensics → detection engineering → evaluation of AI in security operations.
+
+| Repository | What it establishes |
+| --- | --- |
+| [VolMemLyzer3](https://github.com/YaCnDehfuli/VolMemLyzer3-CLI_forensic_tool) | Volatility 3 orchestration and feature extraction; 2.4× parallel speedup on a pinned 10-plugin set |
+| **VADViT** | Published ViT classification of process memory — 99.2% binary accuracy, 92% macro-F1 |
+| [MalGraph](https://github.com/YaCnDehfuli/MalGraph) | Why memory-time recovery matters: UPX packing leaves 5.4% of functions statically recoverable |
+| [MemTriage](https://github.com/YaCnDehfuli/MemTriage) | The analyst workspace that consumes both |
+| [detection-under-load](https://github.com/YaCnDehfuli/detection-under-load) | Published Sigma coverage for T1003.001 collapses under operator-controlled renaming |
+| [agent-under-load](https://github.com/YaCnDehfuli/agent-under-load) | Whether an LLM agent can triage those detections, measured against deterministic ground truth |
