@@ -131,7 +131,6 @@ cd ../..
 python train.py
 python test.py
 python test.py --explain</code></pre></div></div>
-<div class="callout"><strong>Published-training discrepancy to keep visible.</strong><div class="note">The paper specifies AdamW with weight decay 1e-2 and ReduceLROnPlateau factor 0.5. The current repository's <code>train.py</code> uses Adam and factor 0.33. A run of the current tree should therefore not be described as an exact reproduction of the published metric without reconciling those settings.</div></div>
 </section>
 
 <section id="limits">
